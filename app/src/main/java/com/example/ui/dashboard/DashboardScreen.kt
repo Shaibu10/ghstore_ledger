@@ -100,7 +100,9 @@ fun DashboardScreen(
                 totalExpenses = stats.totalExpenses,
                 netProfit = stats.netProfit,
                 totalLoansOutstanding = stats.totalLoansOutstanding,
-                netRetainedBalance = stats.netRetainedBalance
+                netRetainedBalance = stats.netRetainedBalance,
+                totalUnpaidCreditSales = stats.totalUnpaidCreditSales,
+                moneyAtHand = stats.moneyAtHand
             )
         }
 
@@ -217,25 +219,27 @@ fun FinancialBoard(
     totalExpenses: Double,
     netProfit: Double,
     totalLoansOutstanding: Double,
-    netRetainedBalance: Double
+    netRetainedBalance: Double,
+    totalUnpaidCreditSales: Double,
+    moneyAtHand: Double
 ) {
     val fmt = java.text.DecimalFormat("GH₵#,##0.00")
     val emerald = MaterialTheme.colorScheme.primary
     val coral = MaterialTheme.colorScheme.tertiary
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        // High Contrast Net Profit Card
+        // High Contrast Money at Hand Card (Primary Cash Metric)
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("net_profit_card"),
+                .testTag("money_at_hand_card"),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(
-                containerColor = if (netRetainedBalance >= 0) emerald.copy(alpha = 0.15f) else coral.copy(alpha = 0.15f)
+                containerColor = if (moneyAtHand >= 0) emerald.copy(alpha = 0.15f) else coral.copy(alpha = 0.15f)
             ),
             border = CardDefaults.outlinedCardBorder().copy(
                 brush = androidx.compose.ui.graphics.SolidColor(
-                    if (netRetainedBalance >= 0) emerald.copy(alpha = 0.5f) else coral.copy(alpha = 0.5f)
+                    if (moneyAtHand >= 0) emerald.copy(alpha = 0.5f) else coral.copy(alpha = 0.5f)
                 )
             )
         ) {
@@ -246,23 +250,23 @@ fun FinancialBoard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "NET RETAINED BALANCE",
+                        text = "MONEY AT HAND (LIQUID CASH)",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = if (netRetainedBalance >= 0) emerald else coral
+                        color = if (moneyAtHand >= 0) emerald else coral
                     )
                     Text(
-                        text = fmt.format(netRetainedBalance),
+                        text = fmt.format(moneyAtHand),
                         style = MaterialTheme.typography.headlineLarge,
                         fontWeight = FontWeight.ExtraBold,
-                        color = if (netRetainedBalance >= 0) emerald else coral,
-                        modifier = Modifier.testTag("net_profit_amount")
+                        color = if (moneyAtHand >= 0) emerald else coral,
+                        modifier = Modifier.testTag("money_at_hand_amount")
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Ledger Profit: ${fmt.format(netProfit)} | Active Loans Given: ${fmt.format(totalLoansOutstanding)}",
+                        text = "Physical cash presently available in the shop.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                         fontWeight = FontWeight.SemiBold
@@ -272,16 +276,75 @@ fun FinancialBoard(
                     modifier = Modifier
                         .size(48.dp)
                         .background(
-                            color = if (netRetainedBalance >= 0) emerald.copy(alpha = 0.2f) else coral.copy(alpha = 0.2f),
+                            color = if (moneyAtHand >= 0) emerald.copy(alpha = 0.2f) else coral.copy(alpha = 0.2f),
                             shape = CircleShape
                         ),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = if (netRetainedBalance >= 0) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
-                        contentDescription = "Balance health indicator",
-                        tint = if (netRetainedBalance >= 0) emerald else coral,
+                        imageVector = Icons.Default.Payments,
+                        contentDescription = "Money on Hand Icon",
+                        tint = if (moneyAtHand >= 0) emerald else coral,
                         modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+        }
+
+        // Net Retained Balance Card
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("net_profit_card"),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
+            border = CardDefaults.outlinedCardBorder()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "NET RETAINED BALANCE (TOTAL WORTH)",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
+                    Text(
+                        text = fmt.format(netRetainedBalance),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.testTag("net_profit_amount")
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Ledger Profit: ${fmt.format(netProfit)} | Active Loans: ${fmt.format(totalLoansOutstanding)} | Unpaid Credits: ${fmt.format(totalUnpaidCreditSales)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                            shape = CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.TrendingUp,
+                        contentDescription = "Balance health indicator",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }

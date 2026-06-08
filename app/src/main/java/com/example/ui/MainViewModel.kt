@@ -50,14 +50,20 @@ class MainViewModel(
         val totalSales = saleList.sumOf { it.amount }
         val totalExpenses = expenseList.sumOf { it.amount }
         val totalLoansOutstanding = loanList.sumOf { if (!it.isRepaid) it.amount - it.repaidAmount else 0.0 }
+        val totalUnpaidCreditSales = saleList.sumOf { if (it.isCredit && !it.creditPaid) it.amount else 0.0 }
+        
         val netProfit = totalSales - totalExpenses
         val netRetainedBalance = netProfit - totalLoansOutstanding
+        val moneyAtHand = netRetainedBalance - totalUnpaidCreditSales
+        
         FinancialStats(
             totalSales = totalSales,
             totalExpenses = totalExpenses,
             totalLoansOutstanding = totalLoansOutstanding,
+            totalUnpaidCreditSales = totalUnpaidCreditSales,
             netProfit = netProfit,
-            netRetainedBalance = netRetainedBalance
+            netRetainedBalance = netRetainedBalance,
+            moneyAtHand = moneyAtHand
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), FinancialStats())
 
@@ -490,8 +496,10 @@ data class FinancialStats(
     val totalSales: Double = 0.0,
     val totalExpenses: Double = 0.0,
     val totalLoansOutstanding: Double = 0.0,
+    val totalUnpaidCreditSales: Double = 0.0,
     val netProfit: Double = 0.0,
-    val netRetainedBalance: Double = 0.0
+    val netRetainedBalance: Double = 0.0,
+    val moneyAtHand: Double = 0.0
 )
 
 class MainViewModelFactory(

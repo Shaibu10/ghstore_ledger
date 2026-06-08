@@ -1,5 +1,5 @@
 {
-  "name": "Store Ledger",
+  "name": "GH Shop Ledger",
   "description": "Keep track of sales, expenses, and customers with beautiful real-time dashboard analytics.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

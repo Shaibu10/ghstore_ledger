@@ -122,7 +122,7 @@ fun CustomerManagementScreen(
                     color = MaterialTheme.colorScheme.onBackground
                 )
                 Text(
-                    text = if (selectedSubTab == "directory") "Manage customer accounts & communications" else "Issue & track repayments from net retained balance (${currencyFmt.format(stats.netRetainedBalance)})",
+                    text = if (selectedSubTab == "directory") "Manage customer accounts & communications" else "Issue & track repayments (Cash at Hand: ${currencyFmt.format(stats.moneyAtHand)})",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
                 )
@@ -484,7 +484,7 @@ fun CustomerManagementScreen(
         // --- ISSUE CUSTOMER LOAN DIALOG ---
         if (showIssueLoanDialog) {
             var selectedCust by remember { mutableStateOf(selectedCustomerForLoan) }
-            val balance = stats.netRetainedBalance
+            val balance = stats.moneyAtHand
 
             AlertDialog(
                 onDismissRequest = { showIssueLoanDialog = false },
@@ -500,7 +500,7 @@ fun CustomerManagementScreen(
                             } else if (amountVal <= 0.0) {
                                 Toast.makeText(context, "Please enter a valid amount", Toast.LENGTH_LONG).show()
                             } else if (amountVal > balance) {
-                                Toast.makeText(context, "Insufficient Funds in Net Retained Balance!", Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, "Insufficient physical Cash at Hand to grant this loan!", Toast.LENGTH_LONG).show()
                             } else {
                                 val dueTime = System.currentTimeMillis() + (daysVal * 24L * 3600L * 1000L)
                                 viewModel.giveLoan(
