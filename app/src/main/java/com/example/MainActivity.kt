@@ -13,13 +13,14 @@ import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,13 +33,21 @@ import com.example.data.ExpenseRepository
 import com.example.data.SaleRepository
 import com.example.data.ProductRepository
 import com.example.data.LoanRepository
+import com.example.data.local.SessionManager
+import com.example.data.repository.UserRepository
+import com.example.data.repository.AuthRepository
+import com.example.data.repository.ActivityLogRepository
 import com.example.ui.MainViewModel
 import com.example.ui.MainViewModelFactory
+import com.example.ui.auth.LoginScreen
+import com.example.ui.auth.LoginViewModel
+import com.example.ui.auth.LoginViewModelFactory
 import com.example.ui.customers.CustomerManagementScreen
 import com.example.ui.dashboard.DashboardScreen
 import com.example.ui.expenses.ExpensesScreen
 import com.example.ui.reports.ReportsScreen
 import com.example.ui.sales.SalesScreen
+import com.example.ui.users.UsersScreen
 import com.example.ui.theme.StoreLedgerTheme
 
 class MainActivity : ComponentActivity() {
@@ -56,90 +65,135 @@ class MainActivity : ComponentActivity() {
         val expenseRepo = ExpenseRepository(database.expenseDao())
         val productRepo = ProductRepository(database.productDao())
         val loanRepo = LoanRepository(database.loanDao())
+        
+        val sessionManager = SessionManager(this)
+        val userDao = database.userDao()
+        val userRepository = UserRepository(userDao)
+        val authRepository = AuthRepository(userDao, sessionManager)
+        val activityLogRepo = ActivityLogRepository(database.activityLogDao())
 
         // 2. Instantiate global MainViewModel using custom factory
         val viewModel: MainViewModel by viewModels {
-            MainViewModelFactory(customerRepo, saleRepo, expenseRepo, productRepo, loanRepo)
+            MainViewModelFactory(
+                customerRepo,
+                saleRepo,
+                expenseRepo,
+                productRepo,
+                loanRepo,
+                userRepository,
+                authRepository,
+                sessionManager,
+                activityLogRepo
+            )
+        }
+
+        // 3. Instantiate LoginViewModel for security gates
+        val loginViewModel: LoginViewModel by viewModels {
+            LoginViewModelFactory(authRepository)
         }
 
         setContent {
             StoreLedgerTheme {
-                // Safe state-backed lightweight custom router
-                var selectedTab by remember { mutableStateOf("dashboard") }
+                val isLoggedIn by viewModel.isLoggedIn.collectAsState()
 
-                Scaffold(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .systemBarsPadding(), // Ensures full edge-to-edge support without screen-notch clashing
-                    bottomBar = {
-                        NavigationBar(
-                            modifier = Modifier.testTag("main_navigation_bar")
-                        ) {
-                            NavigationBarItem(
-                                selected = selectedTab == "dashboard",
-                                onClick = { selectedTab = "dashboard" },
-                                label = { Text("Dashboard") },
-                                icon = { Icon(Icons.Default.GridView, contentDescription = "Dashboard Screen Icon") },
-                                modifier = Modifier.testTag("nav_tab_dashboard")
+                if (!isLoggedIn) {
+                    LoginScreen(
+                        viewModel = loginViewModel,
+                        mainViewModel = viewModel,
+                        onLoginSuccess = { user ->
+                            viewModel.refreshSessionState()
+                            viewModel.logActivity("AUTH", "Logged in successfully as ${user.name} (${user.role})")
+                        }
+                    )
+                } else {
+                    // Safe state-backed lightweight custom router
+                    var selectedTab by remember { mutableStateOf("dashboard") }
+
+                    Scaffold(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .systemBarsPadding(), // Ensures full edge-to-edge support without screen-notch clashing
+                        bottomBar = {
+                            NavigationBar(
+                                modifier = Modifier.testTag("main_navigation_bar")
+                            ) {
+                                NavigationBarItem(
+                                    selected = selectedTab == "dashboard",
+                                    onClick = { selectedTab = "dashboard" },
+                                    label = { Text("Dashboard") },
+                                    icon = { Icon(Icons.Default.GridView, contentDescription = "Dashboard Screen Icon") },
+                                    modifier = Modifier.testTag("nav_tab_dashboard")
+                                )
+                                NavigationBarItem(
+                                    selected = selectedTab == "customers",
+                                    onClick = { selectedTab = "customers" },
+                                    label = { Text("Directory") },
+                                    icon = { Icon(Icons.Default.Group, contentDescription = "Customers List Icon") },
+                                    modifier = Modifier.testTag("nav_tab_customers")
+                                )
+                                NavigationBarItem(
+                                    selected = selectedTab == "sales",
+                                    onClick = { selectedTab = "sales" },
+                                    label = { Text("Sales") },
+                                    icon = { Icon(Icons.Default.TrendingUp, contentDescription = "Sales Module Icon") },
+                                    modifier = Modifier.testTag("nav_tab_sales")
+                                )
+                                NavigationBarItem(
+                                    selected = selectedTab == "expenses",
+                                    onClick = { selectedTab = "expenses" },
+                                    label = { Text("Expenses") },
+                                    icon = { Icon(Icons.Default.Payments, contentDescription = "Expenses Module Icon") },
+                                    modifier = Modifier.testTag("nav_tab_expenses")
+                                )
+                                NavigationBarItem(
+                                    selected = selectedTab == "reports",
+                                    onClick = { selectedTab = "reports" },
+                                    label = { Text("Reports") },
+                                    icon = { Icon(Icons.Default.Analytics, contentDescription = "Analytical Reports Icon") },
+                                    modifier = Modifier.testTag("nav_tab_reports")
+                                )
+                                NavigationBarItem(
+                                    selected = selectedTab == "users",
+                                    onClick = { selectedTab = "users" },
+                                    label = { Text("Access") },
+                                    icon = { Icon(Icons.Default.Person, contentDescription = "Users & Profiles") },
+                                    modifier = Modifier.testTag("nav_tab_users")
+                                )
+                            }
+                        }
+                    ) { innerPadding ->
+                        val contentModifier = Modifier.padding(innerPadding)
+                        
+                        // Render the corresponding fragment/composable screen
+                        when (selectedTab) {
+                            "dashboard" -> DashboardScreen(
+                                viewModel = viewModel,
+                                onNavigateToSales = { selectedTab = "sales" },
+                                onNavigateToExpenses = { selectedTab = "expenses" },
+                                onNavigateToCustomers = { selectedTab = "customers" },
+                                modifier = contentModifier
                             )
-                            NavigationBarItem(
-                                selected = selectedTab == "customers",
-                                onClick = { selectedTab = "customers" },
-                                label = { Text("Directory") },
-                                icon = { Icon(Icons.Default.Group, contentDescription = "Customers List Icon") },
-                                modifier = Modifier.testTag("nav_tab_customers")
+                            "customers" -> CustomerManagementScreen(
+                                viewModel = viewModel,
+                                modifier = contentModifier
                             )
-                            NavigationBarItem(
-                                selected = selectedTab == "sales",
-                                onClick = { selectedTab = "sales" },
-                                label = { Text("Sales") },
-                                icon = { Icon(Icons.Default.TrendingUp, contentDescription = "Sales Module Icon") },
-                                modifier = Modifier.testTag("nav_tab_sales")
+                            "sales" -> SalesScreen(
+                                viewModel = viewModel,
+                                modifier = contentModifier
                             )
-                            NavigationBarItem(
-                                selected = selectedTab == "expenses",
-                                onClick = { selectedTab = "expenses" },
-                                label = { Text("Expenses") },
-                                icon = { Icon(Icons.Default.Payments, contentDescription = "Expenses Module Icon") },
-                                modifier = Modifier.testTag("nav_tab_expenses")
+                            "expenses" -> ExpensesScreen(
+                                viewModel = viewModel,
+                                modifier = contentModifier
                             )
-                            NavigationBarItem(
-                                selected = selectedTab == "reports",
-                                onClick = { selectedTab = "reports" },
-                                label = { Text("Reports") },
-                                icon = { Icon(Icons.Default.Analytics, contentDescription = "Analytical Reports Icon") },
-                                modifier = Modifier.testTag("nav_tab_reports")
+                            "reports" -> ReportsScreen(
+                                viewModel = viewModel,
+                                modifier = contentModifier
+                            )
+                            "users" -> UsersScreen(
+                                viewModel = viewModel,
+                                modifier = contentModifier
                             )
                         }
-                    }
-                ) { innerPadding ->
-                    val contentModifier = Modifier.padding(innerPadding)
-                    
-                    // Render the corresponding fragment/composable screen
-                    when (selectedTab) {
-                        "dashboard" -> DashboardScreen(
-                            viewModel = viewModel,
-                            onNavigateToSales = { selectedTab = "sales" },
-                            onNavigateToExpenses = { selectedTab = "expenses" },
-                            onNavigateToCustomers = { selectedTab = "customers" },
-                            modifier = contentModifier
-                        )
-                        "customers" -> CustomerManagementScreen(
-                            viewModel = viewModel,
-                            modifier = contentModifier
-                        )
-                        "sales" -> SalesScreen(
-                            viewModel = viewModel,
-                            modifier = contentModifier
-                        )
-                        "expenses" -> ExpensesScreen(
-                            viewModel = viewModel,
-                            modifier = contentModifier
-                        )
-                        "reports" -> ReportsScreen(
-                            viewModel = viewModel,
-                            modifier = contentModifier
-                        )
                     }
                 }
             }

@@ -56,6 +56,10 @@ class UserRepositoryTest {
         override suspend fun getUnsyncedUsers(): List<UserEntity> {
             return users.values.filter { it.updatedAt > it.lastSyncedAt }
         }
+
+        override suspend fun clearAllUsers() {
+            users.clear()
+        }
     }
 
     @Test

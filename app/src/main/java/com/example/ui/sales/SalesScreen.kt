@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.draw.rotate
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -33,8 +35,13 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -68,6 +75,15 @@ import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import android.content.Context
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Receipt
+import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.unit.sp
 
 @Composable
 fun SalesScreen(
@@ -79,6 +95,10 @@ fun SalesScreen(
     val products by viewModel.products.collectAsState()
     val context = LocalContext.current
 
+    val canLogProducts by viewModel.canLogProducts.collectAsState()
+    val canProcessPurchases by viewModel.canProcessPurchases.collectAsState()
+    val canManageExpenses by viewModel.canManageExpenses.collectAsState()
+
     // Navigation and screen-level states
     var activeTab by remember { mutableStateOf("registry") } // "registry" or "catalog"
     var productSearchQuery by remember { mutableStateOf("") }
@@ -87,6 +107,9 @@ fun SalesScreen(
     var showAddSaleDialog by remember { mutableStateOf(false) }
     var showAddProductDialog by remember { mutableStateOf(false) }
     var editingProduct by remember { mutableStateOf<Product?>(null) }
+    var writeOffProduct by remember { mutableStateOf<Product?>(null) }
+    var writeOffQtyString by remember { mutableStateOf("1") }
+    var writeOffReason by remember { mutableStateOf("Spoiled") }
 
     // Add Sale input states
     var saleMethodType by remember { mutableStateOf("catalog") } // "catalog" or "custom"
@@ -94,11 +117,13 @@ fun SalesScreen(
     var description by remember { mutableStateOf("") }
     var selectedCustomer by remember { mutableStateOf<Customer?>(null) }
     var customerDropdownExpanded by remember { mutableStateOf(false) }
+    var dialogCustomerSearchQuery by remember { mutableStateOf("") }
     
     // Catalog POS shopping cart state variables
     var cartItems by remember { mutableStateOf<List<Pair<Product, Int>>>(emptyList()) }
     var currentSelectedCartProduct by remember { mutableStateOf<Product?>(null) }
     var productDropdownExpanded by remember { mutableStateOf(false) }
+    var dialogProductSearchQuery by remember { mutableStateOf("") }
     var selectQtyString by remember { mutableStateOf("1") }
 
     // Discount Feature State variables
@@ -114,6 +139,13 @@ fun SalesScreen(
     var prodCostString by remember { mutableStateOf("") }
     var prodStockString by remember { mutableStateOf("") }
     var categoryDropdownExpanded by remember { mutableStateOf(false) }
+
+    // Thermal Receipt State Variables
+    var activeReceiptSale by remember { mutableStateOf<Sale?>(null) }
+    var activeReceiptCartItems by remember { mutableStateOf<List<Pair<Product, Int>>?>(null) }
+    var activeReceiptDiscountAmount by remember { mutableStateOf(0.0) }
+    var activeReceiptTaxAmount by remember { mutableStateOf(0.0) }
+    var showThermalReceiptDialog by remember { mutableStateOf(false) }
 
     val categoriesList = listOf("Electronics", "Groceries", "Clothing", "Utilities", "Office Supplies", "Services", "Other")
 
@@ -278,6 +310,17 @@ fun SalesScreen(
                                     viewModel.settleCreditSale(s.id)
                                     Toast.makeText(context, "Payment credit settled!", Toast.LENGTH_SHORT).show()
                                 },
+                                onPrint = {
+                                    activeReceiptSale = s
+                                    activeReceiptCartItems = null
+                                    // Parse discount if present in description e.g. "Saved GH₵ 5.00"
+                                    val regex = "Saved GH₵\\s*([\\d.,]+)".toRegex()
+                                    val match = regex.find(s.description)
+                                    val discAmt = match?.groupValues?.get(1)?.replace(",", "")?.toDoubleOrNull() ?: 0.0
+                                    activeReceiptDiscountAmount = discAmt
+                                    activeReceiptTaxAmount = 0.0
+                                    showThermalReceiptDialog = true
+                                },
                                 dateFormat = df,
                                 currencyFormat = fmt
                             )
@@ -399,10 +442,18 @@ fun SalesScreen(
                                 product = product,
                                 format = fmt,
                                 onAddStock = {
+                                    if (!canLogProducts) {
+                                        Toast.makeText(context, "Access Restraints: You do not have permission to modify catalogs.", Toast.LENGTH_SHORT).show()
+                                        return@ProductRowItem
+                                    }
                                     viewModel.updateProductStock(product.id, product.stockQuantity + 1)
                                     Toast.makeText(context, "${product.name} stock increased +1", Toast.LENGTH_SHORT).show()
                                 },
                                 onRemoveStock = {
+                                    if (!canLogProducts) {
+                                        Toast.makeText(context, "Access Restraints: You do not have permission to modify catalogs.", Toast.LENGTH_SHORT).show()
+                                        return@ProductRowItem
+                                    }
                                     if (product.stockQuantity > 0) {
                                         viewModel.updateProductStock(product.id, product.stockQuantity - 1)
                                         Toast.makeText(context, "${product.name} stock reduced -1", Toast.LENGTH_SHORT).show()
@@ -411,6 +462,10 @@ fun SalesScreen(
                                     }
                                 },
                                 onEdit = {
+                                    if (!canLogProducts) {
+                                        Toast.makeText(context, "Access Restraints: You do not have permission to edit catalogs.", Toast.LENGTH_SHORT).show()
+                                        return@ProductRowItem
+                                    }
                                     editingProduct = product
                                     // Populate update dialog fields
                                     prodName = product.name
@@ -421,8 +476,21 @@ fun SalesScreen(
                                     prodStockString = product.stockQuantity.toString()
                                 },
                                 onDelete = {
+                                    if (!canLogProducts) {
+                                        Toast.makeText(context, "Access Restraints: You do not have permission to delete catalog items.", Toast.LENGTH_SHORT).show()
+                                        return@ProductRowItem
+                                    }
                                     viewModel.deleteProduct(product.id)
                                     Toast.makeText(context, "${product.name} removed from catalog", Toast.LENGTH_SHORT).show()
+                                },
+                                onWriteOffSpoilage = {
+                                    if (!canManageExpenses) {
+                                        Toast.makeText(context, "Access Restraints: You do not have permission to log losses (Manage Expenses).", Toast.LENGTH_SHORT).show()
+                                        return@ProductRowItem
+                                    }
+                                    writeOffProduct = product
+                                    writeOffQtyString = "1"
+                                    writeOffReason = "Spoiled"
                                 }
                             )
                         }
@@ -438,18 +506,30 @@ fun SalesScreen(
         FloatingActionButton(
             onClick = {
                 if (activeTab == "registry") {
+                    if (!canProcessPurchases) {
+                        Toast.makeText(context, "Access Restraints: You do not have permission to record transactions (Process Sales).", Toast.LENGTH_LONG).show()
+                        return@FloatingActionButton
+                    }
                     // Reset New Sale Form Dialog
                     amountString = ""
                     description = ""
                     selectedCustomer = null
+                    customerDropdownExpanded = false
+                    dialogCustomerSearchQuery = ""
                     cartItems = emptyList()
                     currentSelectedCartProduct = null
+                    productDropdownExpanded = false
+                    dialogProductSearchQuery = ""
                     selectQtyString = "1"
                     discountType = "none"
                     discountValueString = ""
                     isCreditSelection = false
                     showAddSaleDialog = true
                 } else {
+                    if (!canLogProducts) {
+                        Toast.makeText(context, "Access Restraints: You do not have permission to create items (Log Products).", Toast.LENGTH_LONG).show()
+                        return@FloatingActionButton
+                    }
                     // Reset New Product Form Dialog
                     prodName = ""
                     prodCategory = "Electronics"
@@ -493,6 +573,16 @@ fun SalesScreen(
                                 } else if (description.isBlank()) {
                                     Toast.makeText(context, "Please insert a custom sales description", Toast.LENGTH_SHORT).show()
                                 } else {
+                                    val provisionalSale = Sale(
+                                        id = 0,
+                                        customerId = cid,
+                                        customerName = custName,
+                                        amount = amount,
+                                        description = description,
+                                        timestamp = System.currentTimeMillis(),
+                                        isCredit = isCreditSelection,
+                                        creditPaid = false
+                                    )
                                     viewModel.addSale(
                                         customerId = cid,
                                         customerName = custName,
@@ -504,6 +594,13 @@ fun SalesScreen(
                                     showAddSaleDialog = false
                                     val msgType = if (isCreditSelection) "credit sale" else "receipt"
                                     Toast.makeText(context, "Custom $msgType of ${fmt.format(amount)} saved", Toast.LENGTH_SHORT).show()
+                                    
+                                    // Trigger electronic receipt dialog
+                                    activeReceiptSale = provisionalSale
+                                    activeReceiptCartItems = null
+                                    activeReceiptDiscountAmount = 0.0
+                                    activeReceiptTaxAmount = 0.0
+                                    showThermalReceiptDialog = true
                                 }
                             } else {
                                 // Product inventory basket flow
@@ -529,6 +626,17 @@ fun SalesScreen(
                                 val cartDesc = "Products: " + cartItems.joinToString { "${it.second}x ${it.first.name}" } + discInfo
                                 val deductions = cartItems.map { Pair(it.first.id, it.second) }
 
+                                val provisionalSale = Sale(
+                                    id = 0,
+                                    customerId = cid,
+                                    customerName = custName,
+                                    amount = cartTotal,
+                                    description = cartDesc,
+                                    timestamp = System.currentTimeMillis(),
+                                    isCredit = isCreditSelection,
+                                    creditPaid = false
+                                )
+
                                 viewModel.addSaleWithProductDeductions(
                                     customerId = cid,
                                     customerName = custName,
@@ -541,6 +649,14 @@ fun SalesScreen(
                                 showAddSaleDialog = false
                                 val label = if (isCreditSelection) "Logged credit sale of ${fmt.format(cartTotal)}." else "Logged ${fmt.format(cartTotal)} basket sale."
                                 Toast.makeText(context, "$label Inventory updated!", Toast.LENGTH_LONG).show()
+
+                                // Trigger receipt dialog and clear active checkout cart
+                                activeReceiptSale = provisionalSale
+                                activeReceiptCartItems = cartItems.toList()
+                                activeReceiptDiscountAmount = calculatedDiscount
+                                activeReceiptTaxAmount = 0.0
+                                cartItems = emptyList()
+                                showThermalReceiptDialog = true
                             }
                         }
                     ) {
@@ -548,7 +664,13 @@ fun SalesScreen(
                     }
                 },
                 dismissButton = {
-                    OutlinedButton(onClick = { showAddSaleDialog = false }) {
+                    OutlinedButton(onClick = { 
+                        showAddSaleDialog = false 
+                        dialogCustomerSearchQuery = ""
+                        dialogProductSearchQuery = ""
+                        customerDropdownExpanded = false
+                        productDropdownExpanded = false
+                    }) {
                         Text("Cancel")
                     }
                 },
@@ -564,9 +686,10 @@ fun SalesScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier
                             .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
                             .wrapContentHeight()
                     ) {
-                        // Customer dropdown account selection (shared)
+                        // Customer selection (Dynamic Autocomplete Search)
                         Column {
                             Text(
                                 text = "Select Customer Link (Optional)",
@@ -575,44 +698,112 @@ fun SalesScreen(
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                             )
                             Spacer(modifier = Modifier.height(4.dp))
-                            Row(
+                            
+                            OutlinedTextField(
+                                value = dialogCustomerSearchQuery,
+                                onValueChange = { 
+                                    dialogCustomerSearchQuery = it
+                                    customerDropdownExpanded = true 
+                                },
+                                placeholder = { Text(selectedCustomer?.name ?: "Search customer name or phone...") },
+                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                                trailingIcon = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (dialogCustomerSearchQuery.isNotEmpty() || selectedCustomer != null) {
+                                            IconButton(onClick = { 
+                                                dialogCustomerSearchQuery = "" 
+                                                selectedCustomer = null
+                                            }) {
+                                                Icon(Icons.Default.Close, contentDescription = "Clear Selection")
+                                            }
+                                        }
+                                        IconButton(onClick = { customerDropdownExpanded = !customerDropdownExpanded }) {
+                                            Icon(
+                                                imageVector = Icons.Default.ArrowDropDown, 
+                                                contentDescription = "Toggle list",
+                                                modifier = Modifier.rotate(if (customerDropdownExpanded) 180f else 0f)
+                                            )
+                                        }
+                                    }
+                                },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { customerDropdownExpanded = true }
-                                    .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
-                                    .padding(vertical = 10.dp, horizontal = 12.dp)
-                                    .testTag("checkout_customer_dropdown"),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = selectedCustomer?.name ?: "Cash Walk-In (Retail Handout)",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Icon(Icons.Default.ArrowDropDown, contentDescription = "chevron")
-                            }
+                                    .testTag("checkout_dialog_customer_search"),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp)
+                            )
 
-                            DropdownMenu(
-                                expanded = customerDropdownExpanded,
-                                onDismissRequest = { customerDropdownExpanded = false },
-                                modifier = Modifier.fillMaxWidth(0.7f)
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Cash Walk-In (Retail Handout)", fontWeight = FontWeight.Bold) },
-                                    onClick = {
-                                        selectedCustomer = null
-                                        customerDropdownExpanded = false
-                                    }
-                                )
-                                customers.forEach { cust ->
-                                    DropdownMenuItem(
-                                        text = { Text(cust.name) },
-                                        onClick = {
-                                            selectedCustomer = cust
-                                            customerDropdownExpanded = false
+                            if (customerDropdownExpanded) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Card(
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 160.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                ) {
+                                    LazyColumn(
+                                        modifier = Modifier.padding(4.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        item {
+                                            Card(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        selectedCustomer = null
+                                                        dialogCustomerSearchQuery = ""
+                                                        customerDropdownExpanded = false
+                                                    },
+                                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Text(
+                                                     "Cash Walk-In (Retail Handout)",
+                                                     modifier = Modifier.padding(12.dp),
+                                                     style = MaterialTheme.typography.bodyMedium,
+                                                     fontWeight = FontWeight.Bold
+                                                )
+                                            }
                                         }
-                                    )
+                                        val filteredCustomers = customers.filter { cust ->
+                                            dialogCustomerSearchQuery.isEmpty() ||
+                                            cust.name.contains(dialogCustomerSearchQuery, ignoreCase = true) ||
+                                            cust.phone.contains(dialogCustomerSearchQuery, ignoreCase = true)
+                                        }
+                                        if (filteredCustomers.isEmpty()) {
+                                            item {
+                                                Box(
+                                                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text("No customers match query", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
+                                            }
+                                        } else {
+                                            items(filteredCustomers) { cust ->
+                                                Card(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clickable {
+                                                            selectedCustomer = cust
+                                                            dialogCustomerSearchQuery = cust.name
+                                                            customerDropdownExpanded = false
+                                                        },
+                                                    colors = CardDefaults.cardColors(
+                                                        containerColor = if (selectedCustomer?.id == cust.id) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                                                    ),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    Column(modifier = Modifier.padding(12.dp)) {
+                                                        Text(cust.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                                        Text(cust.phone, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -751,7 +942,7 @@ fun SalesScreen(
                                     )
                                 }
                             } else {
-                                // Select product dropdown
+                                // Select product dynamic search autocomplete
                                 Column {
                                     Text(
                                         text = "Add Item to Basket",
@@ -760,38 +951,112 @@ fun SalesScreen(
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
-                                    Row(
+                                    
+                                    OutlinedTextField(
+                                        value = dialogProductSearchQuery,
+                                        onValueChange = { 
+                                            dialogProductSearchQuery = it
+                                            productDropdownExpanded = true 
+                                        },
+                                        placeholder = { 
+                                            Text(
+                                                currentSelectedCartProduct?.let { "${it.name} (${fmt.format(it.price)})" } 
+                                                    ?: "Search product name, SKU, or category..."
+                                            ) 
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                                        trailingIcon = {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                if (dialogProductSearchQuery.isNotEmpty() || currentSelectedCartProduct != null) {
+                                                    IconButton(onClick = { 
+                                                        dialogProductSearchQuery = "" 
+                                                        currentSelectedCartProduct = null
+                                                    }) {
+                                                        Icon(Icons.Default.Close, contentDescription = "Clear Product Selection")
+                                                    }
+                                                }
+                                                IconButton(onClick = { productDropdownExpanded = !productDropdownExpanded }) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.ArrowDropDown, 
+                                                        contentDescription = "Toggle list",
+                                                        modifier = Modifier.rotate(if (productDropdownExpanded) 180f else 0f)
+                                                    )
+                                                }
+                                            }
+                                        },
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clickable { productDropdownExpanded = true }
-                                            .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
-                                            .padding(vertical = 10.dp, horizontal = 12.dp)
-                                            .testTag("add_item_dropdown"),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = currentSelectedCartProduct?.let { "${it.name} (${fmt.format(it.price)}) - Stock: ${it.stockQuantity}" } ?: "Choose Product...",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Icon(Icons.Default.ArrowDropDown, contentDescription = "dropdown")
-                                    }
+                                            .testTag("checkout_dialog_product_search"),
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
 
-                                    DropdownMenu(
-                                        expanded = productDropdownExpanded,
-                                        onDismissRequest = { productDropdownExpanded = false },
-                                        modifier = Modifier.fillMaxWidth(0.7f)
-                                    ) {
-                                        products.forEach { prod ->
-                                            DropdownMenuItem(
-                                                text = { Text("${prod.name} (${fmt.format(prod.price)}) [Qty: ${prod.stockQuantity}]") },
-                                                onClick = {
-                                                    currentSelectedCartProduct = prod
-                                                    productDropdownExpanded = false
+                                    if (productDropdownExpanded) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Card(
+                                            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .heightIn(max = 160.dp),
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                        ) {
+                                            LazyColumn(
+                                                modifier = Modifier.padding(4.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                val filteredProducts = products.filter { prod ->
+                                                    dialogProductSearchQuery.isEmpty() ||
+                                                    prod.name.contains(dialogProductSearchQuery, ignoreCase = true) ||
+                                                    prod.sku.contains(dialogProductSearchQuery, ignoreCase = true) ||
+                                                    prod.category.contains(dialogProductSearchQuery, ignoreCase = true)
                                                 }
-                                            )
+                                                if (filteredProducts.isEmpty()) {
+                                                    item {
+                                                        Box(
+                                                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Text("No matches found", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                        }
+                                                    }
+                                                } else {
+                                                    items(filteredProducts) { prod ->
+                                                        Card(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .clickable {
+                                                                    currentSelectedCartProduct = prod
+                                                                    dialogProductSearchQuery = prod.name
+                                                                    productDropdownExpanded = false
+                                                                },
+                                                            colors = CardDefaults.cardColors(
+                                                                containerColor = if (currentSelectedCartProduct?.id == prod.id) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                                                            ),
+                                                            shape = RoundedCornerShape(8.dp)
+                                                        ) {
+                                                            Column(modifier = Modifier.padding(10.dp)) {
+                                                                Row(
+                                                                    modifier = Modifier.fillMaxWidth(),
+                                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                                    verticalAlignment = Alignment.CenterVertically
+                                                                ) {
+                                                                    Text(prod.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                                                    Text(fmt.format(prod.price), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                                                }
+                                                                Row(
+                                                                    modifier = Modifier.fillMaxWidth(),
+                                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                                    verticalAlignment = Alignment.CenterVertically
+                                                                ) {
+                                                                    Text("SKU: ${prod.sku} | ${prod.category}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                                    Text("Stock: ${prod.stockQuantity}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = if (prod.stockQuantity > 0) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1053,7 +1318,9 @@ fun SalesScreen(
                 text = {
                     Column(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
                     ) {
                         OutlinedTextField(
                             value = prodName,
@@ -1198,7 +1465,9 @@ fun SalesScreen(
                 text = {
                     Column(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
                     ) {
                         OutlinedTextField(
                             value = prodName,
@@ -1287,6 +1556,170 @@ fun SalesScreen(
                 shape = RoundedCornerShape(16.dp)
             )
         }
+
+        // --- NEW DIALOG: WRITE OFF SPOILED/DAMAGED STOCK ---
+        if (writeOffProduct != null) {
+            val productToAdjust = writeOffProduct!!
+            AlertDialog(
+                onDismissRequest = { writeOffProduct = null },
+                confirmButton = {
+                    Button(
+                        modifier = Modifier.testTag("dialog_confirm_write_off"),
+                        onClick = {
+                            val qty = writeOffQtyString.toIntOrNull()
+                            if (qty == null || qty <= 0) {
+                                Toast.makeText(context, "Enter a valid positive quantity", Toast.LENGTH_SHORT).show()
+                            } else if (qty > productToAdjust.stockQuantity) {
+                                Toast.makeText(context, "Cannot write off more than current stock (${productToAdjust.stockQuantity})", Toast.LENGTH_SHORT).show()
+                            } else {
+                                val remainingStock = productToAdjust.stockQuantity - qty
+                                viewModel.writeOffSpoiledStock(
+                                    productId = productToAdjust.id,
+                                    productName = productToAdjust.name,
+                                    sku = productToAdjust.sku,
+                                    costPrice = productToAdjust.costPrice,
+                                    quantity = qty,
+                                    newStock = remainingStock,
+                                    reason = writeOffReason
+                                )
+                                writeOffProduct = null
+                                Toast.makeText(context, "Logged ${qty} unit(s) of ${productToAdjust.name} as Inventory Loss.", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Confirm Loss Write-Off", color = MaterialTheme.colorScheme.onError)
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(onClick = { writeOffProduct = null }) {
+                        Text("Cancel")
+                    }
+                },
+                title = { 
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically, 
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Text("Write Off Loss (Spoilage/Damage)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    }
+                },
+                text = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Text(
+                            text = "Reducing stock of items due to damage, spoilage, or expiration will adjust the ledger by recording the total product cost as a direct business expense.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        
+                        // Product Details Summary
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text(productToAdjust.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                Text("SKU: ${productToAdjust.sku} • Current Stock: ${productToAdjust.stockQuantity} units available", style = MaterialTheme.typography.bodySmall)
+                                Text("Cost Price: ${fmt.format(productToAdjust.costPrice)} each", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+
+                        // Input: Spoilage Quantity
+                        OutlinedTextField(
+                            value = writeOffQtyString,
+                            onValueChange = { writeOffQtyString = it },
+                            label = { Text("Quantity Spoiled/Damaged (Units)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        )
+
+                        // Input: Reason for Write-Off
+                        OutlinedTextField(
+                            value = writeOffReason,
+                            onValueChange = { writeOffReason = it },
+                            label = { Text("Reason for Loss / Damage") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+
+                        // Quick selection reasons
+                        Text(
+                            text = "QUICK REASONS",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                        )
+                        
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            val presetReasons = listOf("Spoiled", "Expired", "Damaged", "Stolen")
+                            presetReasons.forEach { r ->
+                                FilterChip(
+                                    selected = writeOffReason == r,
+                                    onClick = { writeOffReason = r },
+                                    label = { Text(r) }
+                                )
+                            }
+                        }
+
+                        // Financial Loss estimation
+                        val inputQty = writeOffQtyString.toIntOrNull() ?: 0
+                        val rawLossAmount = productToAdjust.costPrice * inputQty
+                        
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.error.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                                .padding(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "IMPACT ON ASSETS & NET PROFIT:",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                                Text(
+                                    text = "-" + fmt.format(rawLossAmount),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Black,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
+                },
+                shape = RoundedCornerShape(16.dp)
+            )
+        }
+
+        if (showThermalReceiptDialog && activeReceiptSale != null) {
+            ThermalReceiptDialog(
+                sale = activeReceiptSale!!,
+                cartItems = activeReceiptCartItems,
+                discountAmount = activeReceiptDiscountAmount,
+                taxAmount = activeReceiptTaxAmount,
+                viewModel = viewModel,
+                onClose = {
+                    showThermalReceiptDialog = false
+                    activeReceiptSale = null
+                    activeReceiptCartItems = null
+                }
+            )
+        }
     }
 }
 
@@ -1295,6 +1728,7 @@ fun SaleRowItem(
     sale: Sale,
     onDelete: () -> Unit,
     onSettle: (() -> Unit)? = null,
+    onPrint: () -> Unit,
     dateFormat: SimpleDateFormat,
     currencyFormat: NumberFormat
 ) {
@@ -1423,6 +1857,20 @@ fun SaleRowItem(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 IconButton(
+                    onClick = onPrint,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .testTag("print_sale_${sale.id}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Print,
+                        contentDescription = "Print thermal receipt",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                IconButton(
                     onClick = onDelete,
                     modifier = Modifier
                         .size(36.dp)
@@ -1447,7 +1895,8 @@ fun ProductRowItem(
     onAddStock: () -> Unit,
     onRemoveStock: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onWriteOffSpoilage: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -1496,6 +1945,9 @@ fun ProductRowItem(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onWriteOffSpoilage, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Warning, contentDescription = "Write-off spoiled or damaged stock", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                    }
                     IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Default.Edit, contentDescription = "Edit product details", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(16.dp))
                     }
@@ -1581,6 +2033,176 @@ fun ProductRowItem(
                     IconButton(onClick = onAddStock, modifier = Modifier.size(28.dp)) {
                         Icon(Icons.Default.AddCircle, contentDescription = "increase stock quantity", tint = MaterialTheme.colorScheme.primary)
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ThermalReceiptDialog(
+    sale: Sale,
+    cartItems: List<Pair<Product, Int>>?,
+    discountAmount: Double,
+    taxAmount: Double,
+    viewModel: MainViewModel,
+    onClose: () -> Unit
+) {
+    val context = LocalContext.current
+    val storeName by viewModel.storeName.collectAsState()
+    val storePhone by viewModel.storePhone.collectAsState()
+    val storeLocation by viewModel.storeLocation.collectAsState()
+    val storeFooter by viewModel.storeFooter.collectAsState()
+    val storeTaxId by viewModel.storeTaxId.collectAsState()
+
+    val receiptText = remember(sale, cartItems, discountAmount, taxAmount, storeName, storePhone, storeLocation, storeFooter, storeTaxId) {
+        com.example.util.ReceiptPrinter.formatThermalReceipt(
+            sale = sale,
+            cartItems = cartItems,
+            discountAmount = discountAmount,
+            taxAmount = taxAmount,
+            storeName = storeName,
+            storePhone = storePhone,
+            storeLocation = storeLocation,
+            storeFooter = storeFooter,
+            storeTaxId = storeTaxId
+        )
+    }
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onClose) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .wrapContentHeight()
+                .padding(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Header of Dialog
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Receipt,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Thermal Receipt Preview",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    IconButton(onClick = onClose) {
+                        Icon(imageVector = Icons.Default.Close, contentDescription = "Close Dialog")
+                    }
+                }
+
+                // Interactive receipt roll preview (White slip mimicking real thermal paper)
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(260.dp),
+                    colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color(0xFFF9F9F9)),
+                    border = BorderStroke(1.dp, androidx.compose.ui.graphics.Color(0xFFE2E2E2)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Box(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                        val scrollState = rememberScrollState()
+                        Text(
+                            text = receiptText,
+                            style = androidx.compose.ui.text.TextStyle(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                color = androidx.compose.ui.graphics.Color.Black,
+                                lineHeight = 14.sp
+                            ),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(scrollState)
+                        )
+                    }
+                }
+
+                // Primary Quick Actions (Copy to clipboard/Share/Native print)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Button 1: Copy to Clipboard
+                    Button(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            val clip = android.content.ClipData.newPlainText("POS Thermal Receipt", receiptText)
+                            clipboard.setPrimaryClip(clip)
+                            Toast.makeText(context, "Receipt text copied to clipboard!", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .testTag("copy_receipt_btn")
+                    ) {
+                        Icon(imageVector = Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Copy", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold))
+                    }
+
+                    // Button 2: Native Android Print Spooler
+                    Button(
+                        onClick = {
+                            com.example.util.ReceiptPrinter.printNativeSystemsReceipt(
+                                context,
+                                sale,
+                                cartItems,
+                                discountAmount,
+                                taxAmount
+                            )
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .testTag("print_receipt_btn")
+                    ) {
+                        Icon(imageVector = Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Print POS", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold))
+                    }
+                }
+
+                // Button 3: Share (whatsapp/mail)
+                OutlinedButton(
+                    onClick = {
+                        val sendIntent = android.content.Intent().apply {
+                            action = android.content.Intent.ACTION_SEND
+                            putExtra(android.content.Intent.EXTRA_TEXT, receiptText)
+                            type = "text/plain"
+                        }
+                        val shareIntent = android.content.Intent.createChooser(sendIntent, "Share Receipt Via")
+                        context.startActivity(shareIntent)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .testTag("share_receipt_btn")
+                ) {
+                    Icon(imageVector = Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Share Electronic Receipt")
                 }
             }
         }

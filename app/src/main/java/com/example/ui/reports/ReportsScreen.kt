@@ -32,6 +32,8 @@ import android.content.Intent
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -42,6 +44,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -64,10 +67,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.MainViewModel
+import com.example.ui.dashboard.AnalysisPeriod
 import java.text.NumberFormat
 import java.util.Calendar
 import java.util.Locale
@@ -77,19 +81,119 @@ fun ReportsScreen(
     viewModel: MainViewModel,
     modifier: Modifier = Modifier
 ) {
+    val canViewReports by viewModel.canViewReports.collectAsState()
+
+    if (!canViewReports) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f)
+                ),
+                shape = RoundedCornerShape(24.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .background(MaterialTheme.colorScheme.error.copy(alpha = 0.1f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = "Access Denied",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+
+                    Text(
+                        text = "Access Restrained",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Text(
+                        text = "Your user profile does not hold permissions to view analytics insights or generate financial summaries. Please ask your administrator to grant View Analytical Reports access.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+        return
+    }
+
     val context = LocalContext.current
     val sales by viewModel.sales.collectAsState()
     val expenses by viewModel.expenses.collectAsState()
     val loans by viewModel.loans.collectAsState()
+    val stats by viewModel.financialStats.collectAsState()
+
+    val storeName by viewModel.storeName.collectAsState()
+    val storePhone by viewModel.storePhone.collectAsState()
+    val storeLocation by viewModel.storeLocation.collectAsState()
+    val storeTaxId by viewModel.storeTaxId.collectAsState()
 
     var selectedTab by remember { mutableStateOf("trends") } // "trends", "cashflow", "backup"
+    var selectedPeriod by remember { mutableStateOf(AnalysisPeriod.ALL_TIME) }
+
+    val startOfDay = remember {
+        Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
+    val startOf7Days = remember(startOfDay) { startOfDay - (6 * 24 * 3600 * 1000L) }
+    val startOf30Days = remember(startOfDay) { startOfDay - (29 * 24 * 3600 * 1000L) }
+
+    val filteredSales = remember(sales, selectedPeriod, startOfDay, startOf7Days, startOf30Days) {
+        when (selectedPeriod) {
+            AnalysisPeriod.ALL_TIME -> sales
+            AnalysisPeriod.TODAY -> sales.filter { it.timestamp >= startOfDay }
+            AnalysisPeriod.LAST_7_DAYS -> sales.filter { it.timestamp >= startOf7Days }
+            AnalysisPeriod.LAST_30_DAYS -> sales.filter { it.timestamp >= startOf30Days }
+        }
+    }
+
+    val filteredExpenses = remember(expenses, selectedPeriod, startOfDay, startOf7Days, startOf30Days) {
+        when (selectedPeriod) {
+            AnalysisPeriod.ALL_TIME -> expenses
+            AnalysisPeriod.TODAY -> expenses.filter { it.timestamp >= startOfDay }
+            AnalysisPeriod.LAST_7_DAYS -> expenses.filter { it.timestamp >= startOf7Days }
+            AnalysisPeriod.LAST_30_DAYS -> expenses.filter { it.timestamp >= startOf30Days }
+        }
+    }
+
+    val filteredLoans = remember(loans, selectedPeriod, startOfDay, startOf7Days, startOf30Days) {
+        when (selectedPeriod) {
+            AnalysisPeriod.ALL_TIME -> loans
+            AnalysisPeriod.TODAY -> loans.filter { it.timestamp >= startOfDay }
+            AnalysisPeriod.LAST_7_DAYS -> loans.filter { it.timestamp >= startOf7Days }
+            AnalysisPeriod.LAST_30_DAYS -> loans.filter { it.timestamp >= startOf30Days }
+        }
+    }
 
     // Dynamic cash calculations
-    val totalSales = sales.sumOf { it.amount }
-    val totalExpenses = expenses.sumOf { it.amount }
+    val totalSales = filteredSales.sumOf { it.amount }
+    val totalExpenses = filteredExpenses.sumOf { it.amount }
 
     // Grouping expenses by category for the donut chart
-    val expenseCategories = expenses.groupBy { it.category }
+    val expenseCategories = filteredExpenses.groupBy { it.category }
         .mapValues { (_, list) -> list.sumOf { it.amount } }
 
     val totalCategorizedExpenses = expenseCategories.values.sum()
@@ -124,29 +228,29 @@ fun ReportsScreen(
     }.reversed() // Put in ascending historical order
 
     // --- Dynamic Cash Flow Metrics ---
-    val cashSales = sales.filter { !it.isCredit }
+    val cashSales = filteredSales.filter { !it.isCredit }
     val totalCashSalesAmount = cashSales.sumOf { it.amount }
 
-    val creditSalesPaid = sales.filter { it.isCredit && it.creditPaid }
+    val creditSalesPaid = filteredSales.filter { it.isCredit && it.creditPaid }
     val totalCreditSalesPaidAmount = creditSalesPaid.sumOf { it.amount }
 
-    val totalLoanRepaymentsAmount = loans.sumOf { it.repaidAmount }
+    val totalLoanRepaymentsAmount = filteredLoans.sumOf { it.repaidAmount }
 
     val totalInflowAmount = totalCashSalesAmount + totalCreditSalesPaidAmount + totalLoanRepaymentsAmount
 
-    val totalExpensesAmount = expenses.sumOf { it.amount }
-    val totalLoansIssuedAmount = loans.sumOf { it.amount }
+    val totalExpensesAmount = filteredExpenses.sumOf { it.amount }
+    val totalLoansIssuedAmount = filteredLoans.sumOf { it.amount }
 
     val totalOutflowAmount = totalExpensesAmount + totalLoansIssuedAmount
 
     val netCashFlowAmount = totalInflowAmount - totalOutflowAmount
 
     // Cash Movement Ledger Chronology
-    val movements = remember(sales, expenses, loans) {
+    val movements = remember(filteredSales, filteredExpenses, filteredLoans) {
         val list = mutableListOf<CashMovement>()
         
         // Add Cash Sales
-        sales.filter { !it.isCredit }.forEach { s ->
+        filteredSales.filter { !it.isCredit }.forEach { s ->
             list.add(
                 CashMovement(
                     id = "sale_${s.id}",
@@ -160,7 +264,7 @@ fun ReportsScreen(
         }
         
         // Add Paid Credit Sales
-        sales.filter { it.isCredit && it.creditPaid }.forEach { s ->
+        filteredSales.filter { it.isCredit && it.creditPaid }.forEach { s ->
             list.add(
                 CashMovement(
                     id = "credit_${s.id}",
@@ -174,7 +278,7 @@ fun ReportsScreen(
         }
         
         // Add Loan Repayments
-        loans.filter { l -> l.repaidAmount > 0 }.forEach { l ->
+        filteredLoans.filter { l -> l.repaidAmount > 0 }.forEach { l ->
             list.add(
                 CashMovement(
                     id = "loan_repay_${l.id}",
@@ -188,7 +292,7 @@ fun ReportsScreen(
         }
         
         // Add Expenses
-        expenses.forEach { e ->
+        filteredExpenses.forEach { e ->
             list.add(
                 CashMovement(
                     id = "expense_${e.id}",
@@ -202,7 +306,7 @@ fun ReportsScreen(
         }
         
         // Add Loan Issuing
-        loans.forEach { l ->
+        filteredLoans.forEach { l ->
             list.add(
                 CashMovement(
                     id = "loan_issue_${l.id}",
@@ -224,7 +328,13 @@ fun ReportsScreen(
     ) { uri: Uri? ->
         uri?.let {
             try {
-                val reportStr = generateCashFlowReportString(sales, expenses, loans, movements)
+                val reportStr = generateCashFlowReportString(
+                    filteredSales, filteredExpenses, filteredLoans, movements,
+                    storeName = storeName,
+                    storeLocation = storeLocation,
+                    storePhone = storePhone,
+                    storeTaxId = storeTaxId
+                )
                 context.contentResolver.openOutputStream(uri)?.use { stream ->
                     stream.write(reportStr.toByteArray(Charsets.UTF_8))
                 }
@@ -325,6 +435,41 @@ fun ReportsScreen(
                             fontWeight = FontWeight.Bold,
                             color = if (selectedTab == "backup") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                         )
+                    }
+                }
+
+                if (selectedTab == "trends" || selectedTab == "cashflow") {
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        AnalysisPeriod.values().forEach { period ->
+                            val isSelected = selectedPeriod == period
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(36.dp)
+                                    .background(
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                    .clickable { selectedPeriod = period }
+                                    .testTag("reports_period_chip_${period.name.lowercase()}"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = period.label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -476,6 +621,155 @@ fun ReportsScreen(
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- ASSETS & INVENTORY VALUATION CARD ---
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("assets_valuation_chart_card"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = CardDefaults.outlinedCardBorder()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Asset & Stock Inventory Valuation",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Comprehensive report of capital tied in current inventory catalog and combined assets.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        )
+
+                        // Big Total Assets Stat
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
+                                .padding(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "ESTIMATED TOTAL SHOP ASSETS",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = fmt.format(stats.totalAssets),
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Analytics,
+                                        contentDescription = "Combined Assets",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Stock valuation row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "STOCK COST VALUE",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                )
+                                Text(
+                                    text = fmt.format(stats.totalInventoryValueCost),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Book acquisition assets",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                )
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "POTENTIAL RETAIL VALUE",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                )
+                                Text(
+                                    text = fmt.format(stats.totalInventoryValueRetail),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Market sales asset value",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Potential Margin Lock stats
+                        val potentialMargin = stats.totalInventoryValueRetail - stats.totalInventoryValueCost
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "UNLOCKED MARGIN DEPOSITED IN STOCK",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = fmt.format(potentialMargin),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "Potential gross profit remaining to be cleared from inventory",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                )
                             }
                         }
                     }
@@ -833,8 +1127,14 @@ fun ReportsScreen(
 
     // --- PREVIEW DIALOG TO COPY/PRINT/SHARE ---
     if (showPreviewDialog) {
-        val reportString = remember(sales, expenses, loans, movements) {
-            generateCashFlowReportString(sales, expenses, loans, movements)
+        val reportString = remember(sales, expenses, loans, movements, storeName, storeLocation, storePhone, storeTaxId) {
+            generateCashFlowReportString(
+                sales, expenses, loans, movements,
+                storeName = storeName,
+                storeLocation = storeLocation,
+                storePhone = storePhone,
+                storeTaxId = storeTaxId
+            )
         }
 
         AlertDialog(
@@ -1287,7 +1587,11 @@ fun generateCashFlowReportString(
     sales: List<com.example.data.Sale>,
     expenses: List<com.example.data.Expense>,
     loans: List<com.example.data.Loan>,
-    movements: List<CashMovement>
+    movements: List<CashMovement>,
+    storeName: String = "GH POS & RETAILS LTD",
+    storeLocation: String = "",
+    storePhone: String = "",
+    storeTaxId: String = ""
 ): String {
     val fmt = java.text.DecimalFormat("GH₵#,##0.00")
     val df = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault())
@@ -1307,8 +1611,18 @@ fun generateCashFlowReportString(
     
     val sb = StringBuilder()
     sb.append("====================================================\n")
-    sb.append("               GH SHOP LEDGER REPORT                \n")
+    sb.append("             ${storeName.uppercase(java.util.Locale.getDefault())} \n")
+    if (storeLocation.isNotBlank()) {
+        sb.append("Location:    $storeLocation\n")
+    }
+    if (storePhone.isNotBlank()) {
+        sb.append("Tel:         $storePhone\n")
+    }
+    if (storeTaxId.isNotBlank()) {
+        sb.append("TIN/TAX ID:  $storeTaxId\n")
+    }
     sb.append("====================================================\n")
+    sb.append("Report:         CASH FLOW & FINANCIAL SUMMARY\n")
     sb.append("Statement Run:  $now\n")
     sb.append("Currency:       GHS (GH₵)\n")
     sb.append("----------------------------------------------------\n\n")

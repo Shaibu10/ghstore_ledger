@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -316,7 +318,10 @@ fun ProductManagementScreen(
             onDismissRequest = { showAddCategoryDialog = false },
             title = { Text("Create New Category") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.verticalScroll(rememberScrollState())
+                ) {
                     OutlinedTextField(
                         value = catName,
                         onValueChange = { catName = it },
@@ -513,6 +518,7 @@ fun AddEditProductDialog(
             Column(
                 modifier = Modifier
                     .padding(20.dp)
+                    .verticalScroll(rememberScrollState())
                     .wrapContentHeight(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {

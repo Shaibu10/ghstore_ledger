@@ -14,8 +14,13 @@ data class UserEntity(
     val name: String,
     val username: String,
     val passwordHash: String, // Encrypted/hashed password for local login Fallback
-    val role: String, // "ADMINISTRATOR", "MANAGER", "CASHIER"
+    val role: String, // "ADMINISTRATOR", "MANAGER", "CASHIER", "ADMIN", "USER"
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
-    val lastSyncedAt: Long = 0L // Timestamp of the last successful backup or sync with firestore
+    val lastSyncedAt: Long = 0L, // Timestamp of the last successful backup or sync with firestore
+    val canLogProducts: Boolean = true,
+    val canProcessPurchases: Boolean = true,
+    val canAddClients: Boolean = true,
+    val canManageExpenses: Boolean = true,
+    val canViewReports: Boolean = true
 )

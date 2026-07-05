@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -57,6 +59,7 @@ fun SalesCheckoutScreen(
     var showDiscountDialog by remember { mutableStateOf(false) }
     var showCustomerDialog by remember { mutableStateOf(false) }
     var showReceiptDialog by remember { mutableStateOf(false) }
+    var customerSearchQuery by remember { mutableStateOf("") }
 
     // When checkout succeeds, show receipt
     LaunchedEffect(checkoutState) {
@@ -198,43 +201,94 @@ fun SalesCheckoutScreen(
 
     // Modal: Customer Selection Picker Dialog
     if (showCustomerDialog) {
+        val filteredCustomers = remember(customerList, customerSearchQuery) {
+            if (customerSearchQuery.isBlank()) {
+                customerList
+            } else {
+                customerList.filter {
+                    it.name.contains(customerSearchQuery, ignoreCase = true) ||
+                    it.phone.contains(customerSearchQuery, ignoreCase = true)
+                }
+            }
+        }
+
         AlertDialog(
-            onDismissRequest = { showCustomerDialog = false },
+            onDismissRequest = { 
+                showCustomerDialog = false
+                customerSearchQuery = ""
+            },
             title = { Text("Select Loyalty Customer") },
             text = {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp)
-                ) {
-                    item {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    viewModel.selectCustomer(null)
-                                    showCustomerDialog = false
-                                },
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                        ) {
-                            Text(
-                                "Anonymous Customer (Walk-in)",
-                                modifier = Modifier.padding(16.dp),
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                    items(customerList) { customer ->
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    viewModel.selectCustomer(customer)
-                                    showCustomerDialog = false
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = customerSearchQuery,
+                        onValueChange = { customerSearchQuery = it },
+                        placeholder = { Text("Search by name or phone...") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        trailingIcon = {
+                            if (customerSearchQuery.isNotEmpty()) {
+                                IconButton(onClick = { customerSearchQuery = "" }) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Clear query")
                                 }
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Text(customer.name, fontWeight = FontWeight.Bold)
-                                Text(customer.phone, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("checkout_customer_search_input")
+                    )
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 280.dp)
+                    ) {
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        viewModel.selectCustomer(null)
+                                        customerSearchQuery = ""
+                                        showCustomerDialog = false
+                                    },
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Text(
+                                    "Anonymous Customer (Walk-in)",
+                                    modifier = Modifier.padding(16.dp),
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        if (filteredCustomers.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("No matching customers", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        } else {
+                            items(filteredCustomers) { customer ->
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            viewModel.selectCustomer(customer)
+                                            customerSearchQuery = ""
+                                            showCustomerDialog = false
+                                        }
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Text(customer.name, fontWeight = FontWeight.Bold)
+                                        Text(customer.phone, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
                             }
                         }
                     }
@@ -242,7 +296,10 @@ fun SalesCheckoutScreen(
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { showCustomerDialog = false }) {
+                TextButton(onClick = { 
+                    showCustomerDialog = false
+                    customerSearchQuery = ""
+                }) {
                     Text("Close")
                 }
             }
@@ -256,7 +313,10 @@ fun SalesCheckoutScreen(
             onDismissRequest = { showDiscountDialog = false },
             title = { Text("Apply Flat Discount") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.verticalScroll(rememberScrollState())
+                ) {
                     Text("Enter total discount amount in Ghanaian Cedis (GH₵)", style = MaterialTheme.typography.bodySmall)
                     OutlinedTextField(
                         value = discountInput,

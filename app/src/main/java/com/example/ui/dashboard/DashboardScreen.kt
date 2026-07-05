@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.Inventory
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -35,6 +37,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
+import java.util.Calendar
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,6 +58,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+enum class AnalysisPeriod(val label: String) {
+    ALL_TIME("All Time"),
+    TODAY("Today"),
+    LAST_7_DAYS("7 Days"),
+    LAST_30_DAYS("30 Days")
+}
+
 @Composable
 fun DashboardScreen(
     viewModel: MainViewModel,
@@ -63,11 +77,48 @@ fun DashboardScreen(
     val rawSales by viewModel.sales.collectAsState()
     val rawExpenses by viewModel.expenses.collectAsState()
 
+    var selectedPeriod by remember { mutableStateOf(AnalysisPeriod.ALL_TIME) }
+
+    val startOfDay = remember {
+        Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
+    val startOf7Days = remember(startOfDay) { startOfDay - (6 * 24 * 3600 * 1000L) }
+    val startOf30Days = remember(startOfDay) { startOfDay - (29 * 24 * 3600 * 1000L) }
+
+    val filteredSales = remember(rawSales, selectedPeriod, startOfDay, startOf7Days, startOf30Days) {
+        when (selectedPeriod) {
+            AnalysisPeriod.ALL_TIME -> rawSales
+            AnalysisPeriod.TODAY -> rawSales.filter { it.timestamp >= startOfDay }
+            AnalysisPeriod.LAST_7_DAYS -> rawSales.filter { it.timestamp >= startOf7Days }
+            AnalysisPeriod.LAST_30_DAYS -> rawSales.filter { it.timestamp >= startOf30Days }
+        }
+    }
+
+    val filteredExpenses = remember(rawExpenses, selectedPeriod, startOfDay, startOf7Days, startOf30Days) {
+        when (selectedPeriod) {
+            AnalysisPeriod.ALL_TIME -> rawExpenses
+            AnalysisPeriod.TODAY -> rawExpenses.filter { it.timestamp >= startOfDay }
+            AnalysisPeriod.LAST_7_DAYS -> rawExpenses.filter { it.timestamp >= startOf7Days }
+            AnalysisPeriod.LAST_30_DAYS -> rawExpenses.filter { it.timestamp >= startOf30Days }
+        }
+    }
+
+    val periodSales = remember(filteredSales) { filteredSales.sumOf { it.amount } }
+    val periodExpenses = remember(filteredExpenses) { filteredExpenses.sumOf { it.amount } }
+    val periodNetProfit = periodSales - periodExpenses
+
     // Interleave recent transactions chronologically
-    val recentTransactions = (
-        rawSales.map { TransactionItem.SaleTx(it) } +
-        rawExpenses.map { TransactionItem.ExpenseTx(it) }
-    ).sortedByDescending { it.timestamp }.take(6)
+    val recentTransactions = remember(filteredSales, filteredExpenses) {
+        (
+            filteredSales.map { TransactionItem.SaleTx(it) } +
+            filteredExpenses.map { TransactionItem.ExpenseTx(it) }
+        ).sortedByDescending { it.timestamp }.take(10)
+    }
 
     LazyColumn(
         modifier = modifier
@@ -90,19 +141,57 @@ fun DashboardScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
                 )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Beautiful interactive capsule-style Selector Row
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    AnalysisPeriod.values().forEach { period ->
+                        val isSelected = selectedPeriod == period
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(36.dp)
+                                .background(
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                                .clickable { selectedPeriod = period }
+                                .testTag("period_chip_${period.name.lowercase()}"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = period.label,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
             }
         }
 
         // --- KEY FINANCIAL BOARD ---
         item {
             FinancialBoard(
-                totalSales = stats.totalSales,
-                totalExpenses = stats.totalExpenses,
-                netProfit = stats.netProfit,
+                periodSales = periodSales,
+                periodExpenses = periodExpenses,
+                periodNetProfit = periodNetProfit,
                 totalLoansOutstanding = stats.totalLoansOutstanding,
                 netRetainedBalance = stats.netRetainedBalance,
                 totalUnpaidCreditSales = stats.totalUnpaidCreditSales,
-                moneyAtHand = stats.moneyAtHand
+                moneyAtHand = stats.moneyAtHand,
+                totalInventoryValueCost = stats.totalInventoryValueCost,
+                totalInventoryValueRetail = stats.totalInventoryValueRetail,
+                totalAssets = stats.totalAssets,
+                selectedPeriodLabel = selectedPeriod.label
             )
         }
 
@@ -146,7 +235,11 @@ fun DashboardScreen(
 
         // --- RATIO CHART INSIGHT ---
         item {
-            BusinessPulseCard(sales = stats.totalSales, expenses = stats.totalExpenses)
+            BusinessPulseCard(
+                sales = periodSales,
+                expenses = periodExpenses,
+                selectedPeriodLabel = selectedPeriod.label
+            )
         }
 
         // --- RECENT LEDGER ENTRIES ---
@@ -215,19 +308,188 @@ sealed class TransactionItem {
 
 @Composable
 fun FinancialBoard(
-    totalSales: Double,
-    totalExpenses: Double,
-    netProfit: Double,
+    periodSales: Double,
+    periodExpenses: Double,
+    periodNetProfit: Double,
     totalLoansOutstanding: Double,
     netRetainedBalance: Double,
     totalUnpaidCreditSales: Double,
-    moneyAtHand: Double
+    moneyAtHand: Double,
+    totalInventoryValueCost: Double,
+    totalInventoryValueRetail: Double,
+    totalAssets: Double,
+    selectedPeriodLabel: String
 ) {
     val fmt = java.text.DecimalFormat("GH₵#,##0.00")
     val emerald = MaterialTheme.colorScheme.primary
     val coral = MaterialTheme.colorScheme.tertiary
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // 1. Total Combined Business Assets Card (Capital Valuation Indicator)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("total_assets_card"),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+            ),
+            border = CardDefaults.outlinedCardBorder().copy(
+                brush = androidx.compose.ui.graphics.SolidColor(
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                )
+            )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "TOTAL BUSINESS ASSETS",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = fmt.format(totalAssets),
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.testTag("total_assets_amount")
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                shape = CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Inventory,
+                            contentDescription = "Total Assets Icon",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(14.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                // Asset Breakdown Header
+                Text(
+                    text = "ASSET CLASS DIRECTORY",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                
+                // Row 1: Stock (At Cost) vs Stock (At Retail)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "INVENTORY (AT COST)",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                        Text(
+                            text = fmt.format(totalInventoryValueCost),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Acquisition capital value",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "INVENTORY (AT RETAIL)",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                        Text(
+                            text = fmt.format(totalInventoryValueRetail),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Est. market yield value",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                // Row 2: Cash Reservoirs vs Net Outstanding Credit
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "LIQUID STORE CASH",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                        Text(
+                            text = fmt.format(moneyAtHand),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (moneyAtHand >= 0) emerald else coral
+                        )
+                        Text(
+                            text = "Working physical cash",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "RECEIVABLES (CREDIT)",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                        Text(
+                            text = fmt.format(totalUnpaidCreditSales),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Owed customer funds",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                        )
+                    }
+                }
+            }
+        }
+
         // High Contrast Money at Hand Card (Primary Cash Metric)
         Card(
             modifier = Modifier
@@ -325,7 +587,7 @@ fun FinancialBoard(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Ledger Profit: ${fmt.format(netProfit)} | Active Loans: ${fmt.format(totalLoansOutstanding)} | Unpaid Credits: ${fmt.format(totalUnpaidCreditSales)}",
+                        text = "Ledger Profit ($selectedPeriodLabel): ${fmt.format(periodNetProfit)} | Active Loans: ${fmt.format(totalLoansOutstanding)} | Unpaid Credits: ${fmt.format(totalUnpaidCreditSales)}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                         fontWeight = FontWeight.Medium
@@ -375,13 +637,13 @@ fun FinancialBoard(
                     Spacer(modifier = Modifier.width(6.dp))
                     Column {
                         Text(
-                            text = "TOTAL SALES",
+                            text = "SALES ($selectedPeriodLabel)",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = fmt.format(totalSales),
+                            text = fmt.format(periodSales),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = emerald
@@ -410,13 +672,13 @@ fun FinancialBoard(
                     Spacer(modifier = Modifier.width(6.dp))
                     Column {
                         Text(
-                            text = "TOTAL COSTS",
+                            text = "COSTS ($selectedPeriodLabel)",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = fmt.format(totalExpenses),
+                            text = fmt.format(periodExpenses),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = coral
@@ -471,7 +733,7 @@ fun QuickActionBtn(
 }
 
 @Composable
-fun BusinessPulseCard(sales: Double, expenses: Double) {
+fun BusinessPulseCard(sales: Double, expenses: Double, selectedPeriodLabel: String) {
     val percentage = if (sales > 0) ((sales - expenses) / sales).coerceIn(0.0, 1.0) else 0.0
     val retentionPctStr = "${(percentage * 100).toInt()}%"
     val emerald = MaterialTheme.colorScheme.primary
@@ -526,14 +788,14 @@ fun BusinessPulseCard(sales: Double, expenses: Double) {
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Cash Retention Rate",
+                    text = "Cash Retention Rate ($selectedPeriodLabel)",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "You are saving $retentionPctStr of raw inflow. High retention signals stable ledger margins.",
+                    text = "You are saving $retentionPctStr of raw inflow during $selectedPeriodLabel. High retention signals stable ledger margins.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                     lineHeight = 14.sp

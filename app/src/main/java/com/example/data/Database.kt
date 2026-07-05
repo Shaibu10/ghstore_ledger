@@ -11,6 +11,10 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import kotlinx.coroutines.flow.Flow
+import com.example.data.entity.UserEntity
+import com.example.data.dao.UserDao
+import com.example.data.entity.ActivityLogEntity
+import com.example.data.dao.ActivityLogDao
 
 // --- ENTITIES ---
 
@@ -162,13 +166,15 @@ interface ProductDao {
     suspend fun clearAllProducts()
 }
 
-@Database(entities = [Customer::class, Sale::class, Expense::class, Product::class, Loan::class], version = 4, exportSchema = false)
+@Database(entities = [Customer::class, Sale::class, Expense::class, Product::class, Loan::class, UserEntity::class, ActivityLogEntity::class], version = 6, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun customerDao(): CustomerDao
     abstract fun saleDao(): SaleDao
     abstract fun expenseDao(): ExpenseDao
     abstract fun productDao(): ProductDao
     abstract fun loanDao(): LoanDao
+    abstract fun userDao(): UserDao
+    abstract fun activityLogDao(): ActivityLogDao
 
     companion object {
         @Volatile

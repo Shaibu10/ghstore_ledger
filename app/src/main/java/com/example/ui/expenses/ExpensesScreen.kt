@@ -3,6 +3,8 @@ package com.example.ui.expenses
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,6 +65,7 @@ fun ExpensesScreen(
     modifier: Modifier = Modifier
 ) {
     val expenses by viewModel.expenses.collectAsState()
+    val canManageExpenses by viewModel.canManageExpenses.collectAsState()
     val context = LocalContext.current
 
     var showAddDialog by remember { mutableStateOf(false) }
@@ -193,6 +196,10 @@ fun ExpensesScreen(
         // FAB to Record Expense
         FloatingActionButton(
             onClick = {
+                if (!canManageExpenses) {
+                    Toast.makeText(context, "Access Restraints: You do not have permission to record new expenses.", Toast.LENGTH_LONG).show()
+                    return@FloatingActionButton
+                }
                 // Reset dialog states
                 amountString = ""
                 description = ""
@@ -244,7 +251,10 @@ fun ExpensesScreen(
                 },
                 title = { Text("Log Cost Transaction", fontWeight = FontWeight.Bold) },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.verticalScroll(rememberScrollState())
+                    ) {
                         
                         // Select Category Dropdown
                         Column {

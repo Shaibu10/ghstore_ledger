@@ -36,4 +36,7 @@ interface UserDao {
     // For background online sync tracking: retrieve any users updated after their last sync
     @Query("SELECT * FROM users WHERE updatedAt > lastSyncedAt")
     suspend fun getUnsyncedUsers(): List<UserEntity>
+
+    @Query("DELETE FROM users")
+    suspend fun clearAllUsers()
 }

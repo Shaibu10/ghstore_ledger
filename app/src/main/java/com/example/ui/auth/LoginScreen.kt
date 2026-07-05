@@ -40,6 +40,7 @@ import com.example.data.entity.UserEntity
 @Composable
 fun LoginScreen(
     viewModel: LoginViewModel,
+    mainViewModel: com.example.ui.MainViewModel,
     onLoginSuccess: (UserEntity) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -261,13 +262,192 @@ fun LoginScreen(
                                     color = MaterialTheme.colorScheme.onPrimary,
                                     modifier = Modifier.size(24.dp),
                                     strokeWidth = 2.dp
-                                )
+                               )
                             } else {
                                 Text(
                                     text = "Sign In securely",
                                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                                 )
                             }
+                        }
+
+                        // --- Client Wifi Sync Button ---
+                        var showWifiSyncDialog by remember { mutableStateOf(false) }
+                        val mainClientHostIp by mainViewModel.clientHostIp.collectAsState()
+                        val mainClientHostPort by mainViewModel.clientHostPort.collectAsState()
+
+                        Spacer(modifier = Modifier.height(4.dp))
+                        OutlinedButton(
+                            onClick = {
+                                val portHost = mainClientHostPort
+                                mainViewModel.updateSyncSettings("CLIENT", mainClientHostIp, portHost, mainViewModel.serverPort.value)
+                                showWifiSyncDialog = true
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                                .testTag("client_sync_dock_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+                        ) {
+                            Text(
+                                text = "🌐 Satellite Terminal Sync",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+
+                        if (showWifiSyncDialog) {
+                            val context = androidx.compose.ui.platform.LocalContext.current
+                            val mainClientConnected by mainViewModel.clientConnected.collectAsState()
+                            val mainSyncError by mainViewModel.syncError.collectAsState()
+                            val mainLastSyncTime by mainViewModel.lastSyncTime.collectAsState()
+
+                            var inputHostIp by remember { mutableStateOf(mainClientHostIp) }
+                            var inputHostPort by remember { mutableStateOf(mainClientHostPort.toString()) }
+                            var isPulling by remember { mutableStateOf(false) }
+
+                            AlertDialog(
+                                onDismissRequest = { showWifiSyncDialog = false },
+                                title = {
+                                    Text(
+                                        text = "Satellite Terminal Setup",
+                                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                },
+                                text = {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .verticalScroll(rememberScrollState()),
+                                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                                    ) {
+                                        Text(
+                                            text = "Connect this screen terminal to your central host server over local Wi-Fi to synchronize registered administrative accounts.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+
+                                        OutlinedTextField(
+                                            value = inputHostIp,
+                                            onValueChange = {
+                                                inputHostIp = it
+                                                val portHost = inputHostPort.toIntOrNull() ?: 8080
+                                                mainViewModel.updateSyncSettings("CLIENT", it, portHost, mainViewModel.serverPort.value)
+                                            },
+                                            label = { Text("Server Host IP Address") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            singleLine = true
+                                        )
+
+                                        OutlinedTextField(
+                                            value = inputHostPort,
+                                            onValueChange = {
+                                                inputHostPort = it
+                                                val portHost = it.toIntOrNull() ?: 8080
+                                                mainViewModel.updateSyncSettings("CLIENT", inputHostIp, portHost, mainViewModel.serverPort.value)
+                                            },
+                                            label = { Text("Server Host Port") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            singleLine = true
+                                        )
+
+                                        // Connected Status
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(10.dp)
+                                                    .background(
+                                                        color = if (mainClientConnected) androidx.compose.ui.graphics.Color.Green else androidx.compose.ui.graphics.Color.Gray,
+                                                        shape = RoundedCornerShape(50)
+                                                    )
+                                            )
+                                            Text(
+                                                text = if (mainClientConnected) "Linked to Host Server" else "Not Connected / Offline",
+                                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                                            )
+                                        }
+
+                                        if (mainLastSyncTime > 0) {
+                                            val formatter = remember { java.text.SimpleDateFormat("hh:mm:ss a", java.util.Locale.getDefault()) }
+                                            Text(
+                                                text = "Last sync: ${formatter.format(java.util.Date(mainLastSyncTime))}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+
+                                        if (mainSyncError.isNotBlank()) {
+                                            Text(
+                                                text = mainSyncError,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.error
+                                            )
+                                        }
+                                    }
+                                },
+                                confirmButton = {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                mainViewModel.testClientConnection(
+                                                    onSuccess = {
+                                                        android.widget.Toast.makeText(context, "Ping host successful. Connection verified!", android.widget.Toast.LENGTH_SHORT).show()
+                                                    },
+                                                    onError = { err ->
+                                                        android.widget.Toast.makeText(context, "Ping failure: $err", android.widget.Toast.LENGTH_LONG).show()
+                                                    }
+                                                )
+                                            },
+                                            enabled = !isPulling
+                                        ) {
+                                            Text("Ping Host")
+                                        }
+
+                                        Button(
+                                            onClick = {
+                                                isPulling = true
+                                                val portHost = inputHostPort.toIntOrNull() ?: 8080
+                                                mainViewModel.updateSyncSettings("CLIENT", inputHostIp, portHost, mainViewModel.serverPort.value)
+                                                mainViewModel.pullAllDataFromHost(
+                                                    onSuccess = {
+                                                        isPulling = false
+                                                        android.widget.Toast.makeText(context, "Full database sync completed! You can now log in.", android.widget.Toast.LENGTH_LONG).show()
+                                                    },
+                                                    onError = { err ->
+                                                        isPulling = false
+                                                        android.widget.Toast.makeText(context, "Download failure: $err", android.widget.Toast.LENGTH_LONG).show()
+                                                    }
+                                                )
+                                            },
+                                            enabled = !isPulling
+                                        ) {
+                                            if (isPulling) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(16.dp),
+                                                    color = MaterialTheme.colorScheme.onPrimary,
+                                                    strokeWidth = 2.dp
+                                                )
+                                            } else {
+                                                Text("Sync Database")
+                                            }
+                                        }
+                                    }
+                                },
+                                dismissButton = {
+                                    TextButton(
+                                        onClick = { showWifiSyncDialog = false },
+                                        enabled = !isPulling
+                                    ) {
+                                        Text("Close")
+                                    }
+                                }
+                            )
                         }
                     }
                 }

@@ -50,6 +50,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -65,6 +67,7 @@ fun CustomerManagementScreen(
     val customers by viewModel.customers.collectAsState()
     val loans by viewModel.loans.collectAsState()
     val stats by viewModel.financialStats.collectAsState()
+    val canAddClients by viewModel.canAddClients.collectAsState()
     val context = LocalContext.current
 
     var selectedSubTab by remember { mutableStateOf("directory") } // "directory" or "loans"
@@ -395,6 +398,10 @@ fun CustomerManagementScreen(
         // Floating Action Button
         FloatingActionButton(
             onClick = {
+                if (!canAddClients) {
+                    Toast.makeText(context, "Access Restraints: You do not have permission to register clients or issue loans.", Toast.LENGTH_LONG).show()
+                    return@FloatingActionButton
+                }
                 if (selectedSubTab == "directory") {
                     name = ""
                     email = ""
@@ -447,7 +454,10 @@ fun CustomerManagementScreen(
                 },
                 title = { Text("Register Customer", fontWeight = FontWeight.Bold) },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.verticalScroll(rememberScrollState())
+                    ) {
                         OutlinedTextField(
                             value = name,
                             onValueChange = { name = it },
@@ -525,7 +535,10 @@ fun CustomerManagementScreen(
                 },
                 title = { Text("Issue Capital Loan", fontWeight = FontWeight.Bold) },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.verticalScroll(rememberScrollState())
+                    ) {
                         Text(
                             text = "Net Retained Balance: ${currencyFmt.format(balance)}",
                             style = MaterialTheme.typography.bodyMedium,
@@ -660,7 +673,10 @@ fun CustomerManagementScreen(
                 },
                 title = { Text("Record Repayment", fontWeight = FontWeight.Bold) },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.verticalScroll(rememberScrollState())
+                    ) {
                         Text("Recipient: ${loan.customerName}", fontWeight = FontWeight.SemiBold)
                         Text("Total Amount Due: ${currencyFmt.format(principalWithInterest)} (${loan.interestRate}% Int.)", style = MaterialTheme.typography.bodyMedium)
                         Text("Already Repaid: ${currencyFmt.format(loan.repaidAmount)}", style = MaterialTheme.typography.bodyMedium)

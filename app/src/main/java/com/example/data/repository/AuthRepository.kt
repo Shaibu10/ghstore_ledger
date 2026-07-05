@@ -25,18 +25,22 @@ class AuthRepository(
             // Store the rememberMe flag
             sessionManager.rememberMe = rememberMe
 
+            val cleanUsername = username.trim().lowercase()
+            val cleanPassword = password.trim()
+
             // 1. Fetch user locally from Room
-            val user = userDao.getUserByUsername(username)
+            var user = userDao.getUserByUsername(username)
+            if (user == null && cleanUsername != username) {
+                user = userDao.getUserByUsername(cleanUsername)
+            }
+
             if (user != null) {
                 // Evaluate SHA256 hashed passwords
                 val inputHash = HashUtils.sha256(password)
-                if (user.passwordHash == inputHash) {
-                    // Cache session details safely
-                    sessionManager.createSession(
-                        userId = user.id,
-                        username = user.username,
-                        role = user.role
-                    )
+                val cleanInputHash = HashUtils.sha256(cleanPassword)
+                if (user.passwordHash == inputHash || user.passwordHash == cleanInputHash) {
+                    // Cache session details safely with permissions
+                    sessionManager.createSession(user)
                     return@withContext Result.success(user)
                 } else {
                     return@withContext Result.failure(Exception("Incorrect password string"))
@@ -44,21 +48,22 @@ class AuthRepository(
             }
 
             // 2. Fallback provision logic: If DB is empty, let's allow a temporary Admin baseline for first-run bootstrap
-            if (username == "admin" && password == "admin") {
+            if ((cleanUsername == "shaibu5278@gmail.com" || cleanUsername == "admin") && cleanPassword == "admin") {
                 val adminUser = UserEntity(
                     id = "admin_boot",
-                    name = "Administrator Profile",
-                    username = "admin",
+                    name = "Shaibu Admin",
+                    username = cleanUsername,
                     passwordHash = HashUtils.sha256("admin"),
-                    role = "ADMINISTRATOR"
+                    role = "ADMINISTRATOR",
+                    canLogProducts = true,
+                    canProcessPurchases = true,
+                    canAddClients = true,
+                    canManageExpenses = true,
+                    canViewReports = true
                 )
                 // Seed local profile for offline resilience
                 userDao.insertUser(adminUser)
-                sessionManager.createSession(
-                    userId = "admin_boot",
-                    username = "admin",
-                    role = "ADMINISTRATOR"
-                )
+                sessionManager.createSession(adminUser)
                 return@withContext Result.success(adminUser)
             }
 
@@ -95,9 +100,15 @@ class AuthRepository(
      */
     suspend fun triggerPasswordReset(username: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            // In a production setup, we dispatch firebase.sendPasswordResetEmail(...) or local verification
-            val exists = userDao.getUserByUsername(username) != null || username == "admin"
-            if (exists) {
+            val user = userDao.getUserByUsername(username)
+            if (user != null) {
+                // Reset password to "admin"
+                val updatedUser = user.copy(passwordHash = HashUtils.sha256("admin"))
+                userDao.updateUser(updatedUser)
+                Result.success(Unit)
+            } else if (username == "admin") {
+                // If user doesn't exist in DB yet, reset effectively means ensure fallback login works.
+                // The fallback login is handled in the login() function itself.
                 Result.success(Unit)
             } else {
                 Result.failure(Exception("User does not exist in local POS registers"))

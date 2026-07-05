@@ -65,4 +65,8 @@ class UserRepository(private val userDao: UserDao) {
     suspend fun getUnsyncedUsers(): List<UserEntity> = withContext(Dispatchers.IO) {
         userDao.getUnsyncedUsers()
     }
+
+    suspend fun clear() = withContext(Dispatchers.IO) {
+        userDao.clearAllUsers()
+    }
 }
